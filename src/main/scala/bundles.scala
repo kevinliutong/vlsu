@@ -14,7 +14,7 @@ class VLSUROBIO(ap: VLSUArchitecturalParams) extends VLSUBundle(ap) {
 
 /** Rob tells vlsu commited vuop */
 class ROBVLSUIO(ap: VLSUArchitecturalParams) extends VLSUBundle(ap){
-  val retireEntries = Flipped(Vec(ap.retireWidth, Valid(new )))
+  val retireEntries = Flipped(Vec(ap.retireWidth, Valid(new VectorLoadStoreCommit(ap))))
 }
 
 class VectorLoadStoreCommit(ap: VLSUArchitecturalParams) extends VLSUBundle(ap){
@@ -46,6 +46,9 @@ class VLdQEntryBundle(ap: VLSUArchitecturalParams) extends LoadStoreQueueEntryBu
   val wakeUpVec = Vec(8, Bool())
   val staleRegIdxVec = Vec(8, UInt(ap.nVPregSz.W))
 }
+class VStQEntryBundle(ap: VLSUArchitecturalParams) extends LoadStoreQueueEntryBundleBase(ap){
+
+}
 
 class LoadStoreQueueEntryBundleBase(ap: VLSUArchitecturalParams) extends VLSUBundle(ap){
   val addr = UInt(ap.coreMaxAddrBits.W)
@@ -58,7 +61,7 @@ class LoadStoreQueueEntryBundleBase(ap: VLSUArchitecturalParams) extends VLSUBun
   val preSnippet = UInt(ap.vLenb.W)
   val style = new VectorAccessStyle(ap)
   val robIndex = UInt(ap.robAddrSz.W)
-  val finishMask = Vec(8, UInt(ap.vLenb.W))
+  val finishMasks = Vec(8, UInt(ap.vLenb.W))
   val allSucceeded = Bool()
   /** Max segment is 8 */
   val segmentCount = UInt(4.W)
@@ -121,6 +124,7 @@ class VLSMicroOP(ap: VLSUArchitecturalParams) extends VLSUBundle(ap){
   /** hold old reg idx before renaming. For untouched loads. */
   val staleRegIdxes: Vec[UInt] = Vec(8, UInt(ap.nVPregSz.W))
   val uCtrlSig = new VLSUMicroControlSignal(ap)
+  val brMask = UInt(ap.maxBrCount.W)
 }
 
 class RegAccessControlSignal(ap: VLSUArchitecturalParams) extends VLSUBundle(ap){

@@ -42,6 +42,8 @@ class VLSUArchitecturalParams(gp: VLSUGeneralParameters,
   val nVStBuffEntries = gp.nVStBuffEntries
   val nVLdBuffEntryIdxBits = log2Ceil(nVLdBuffEntries)
   val nVStBuffEntryIdxBits = log2Ceil(nVStBuffEntries)
+  val nLmshrs = gp.nLmshrs
+  val nSmshrs = gp.nSmshrs
 
   val maxBrCount = bp.maxBrCount
 

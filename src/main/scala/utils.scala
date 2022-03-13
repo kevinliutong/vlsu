@@ -1,4 +1,5 @@
 package vlsu
+import boom.util.maskMatch
 import chisel3._
 import chisel3.util._
 import freechips.rocketchip.util.{DontTouch, leftOR, rightOR}
@@ -351,5 +352,131 @@ class SnippetVectorMaskAdjuster(ap: VLSUArchitecturalParams) extends VLSUModules
   val io = IO(new Bundle{
     val ctrl = Input(new VectorAccessStyle(ap))
     val vm = Input(UInt(ap.vLen.W))
+    /** adjust snippet, bit x is 0 means this bytes of data needs to be accessed. */
+    val adjusterSnippet = Output(Vec(8, UInt(ap.vLenb.W)))
   })
+  io.adjusterSnippet := 0.U.asTypeOf(Vec(8, UInt(ap.vLenb.W)))
+  val elementBytes = (1.U << io.ctrl.dataEew(1, 0)).asUInt()
+  val elenB = (1.U << io.ctrl.dataEew(1,0)).asUInt()
+  val isSegment = io.ctrl.isSegment
+  val elen1 = io.ctrl.dataEew === 0.U
+  val elen2 = io.ctrl.dataEew === 1.U
+  val elen4 = io.ctrl.dataEew === 2.U
+  val elen8 = io.ctrl.dataEew === 3.U
+  val lmul = io.ctrl.vlmul(1,0)
+  val lmulOHs = WireInit(0.U(8.W))
+  lmulOHs := (1.U << lmul).asUInt() - 1.U
+  val elementsPerRegElen1 = ap.vLenb
+  val elementsPerRegElen2 = ap.vLenb / 2
+  val elementsPerRegElen4 = ap.vLenb / 4
+  val elementsPerRegElen8 = ap.vLenb / 8
+  val lmul2 = WireInit(lmul === 1.U)
+  val lmul4 = WireInit(lmul === 2.U)
+  val lmul8 = WireInit(lmul === 3.U)
+  val lmul1 = WireInit(lmul === 0.U)
+  val lmulLargerThanOne = !io.ctrl.vlmul(2) && lmul.orR()
+  val nFields = io.ctrl.nf + 1.U
+  val lmulValue = (1.U << lmul).asUInt()
+  val shrinkRate = 4.U - lmul
+  val elementVldVec = io.vm
+  /** Indicates if this vlen is valid under current vlmul. */
+  val lmulVld: Int => Bool = (pregIdx: Int) => pregIdx.U < (1.U << lmul).asUInt()
+  /** if register is valid in lmul and nf combinations. */
+  val segmentVld: Int => Bool = (i: Int) => i.U < (nFields * lmulValue)
+  /** end byte index of vl. */
+  val endBytevl = (io.ctrl.vl * elementBytes).asUInt()
+  /** byte index of vstart. */
+  val startByte = io.ctrl.vStart * elementBytes
+
+  /** caculate end byte index of this vlen when is in one register group. parameter is segment index. */
+  val endByteLmulX: Int => UInt = (pregIdx: Int) => WireInit(
+    Mux(lmulLargerThanOne && lmulVld(pregIdx), (ap.vLenb.U * (pregIdx + 1).U).asUInt(),
+      Mux(lmul1, ap.vLenb.U, (ap.vLenb.U >> shrinkRate).asUInt())))
+  /** Compare two end byte index and pick smaller one. parameter is segment index. */
+  val endByteIdx: Int => UInt = (pregIdx: Int) => WireInit(
+    Mux(endByteLmulX(pregIdx) > endBytevl, endBytevl, endByteLmulX(pregIdx)))
+
+  /** 0 means this byte need to be accessed, parameter is byte index. */
+  val byteVldX: (Int, UInt) => Bool = (byteIdx: Int, endByteIdx: UInt) => WireInit(
+    byteIdx.U < startByte || byteIdx.U >= endByteIdx)
+
+  /** This is normal look up to vm and check if is valid according to vl. */
+  val snippetX: Int => UInt = (pregIdx: Int) => WireInit(
+    VecInit(Seq.tabulate(ap.vLenb)(byteIdx => byteIdx + pregIdx * ap.vLenb).map(globalByteIdx => {
+      val byteVldByVM: Bool =
+        Mux(elen1, elementVldVec(globalByteIdx),
+          Mux(elen2, elementVldVec(globalByteIdx >> 1),
+            Mux(elen4, elementVldVec(globalByteIdx >> 2),
+              elementVldVec(globalByteIdx >> 3))))
+
+      val byteVldByVL = !byteVldX(globalByteIdx, endByteIdx(pregIdx))
+      // 0 means need access.
+      val byteVld = Mux(byteVldByVL, !byteVldByVM, true.B)
+      byteVld
+    })).asUInt())
+
+  io.adjusterSnippet.zipWithIndex.foreach{case (out, pregIdx) =>
+  out := Mux(io.ctrl.isWholeAccess, Fill(ap.vLenb, !lmulVld(pregIdx)), snippetX(pregIdx))}
+}
+
+/** logics combinations to split request from load store queue entry. */
+class RequestSpliter(ap: VLSUArchitecturalParams, isLoad: Boolean, id: Int) extends VLSUModules(ap){
+  val io = IO(new Bundle{
+    val reg = if(isLoad) Input(new VLdQEntryBundle(ap)) else Input(new VStQEntryBundle(ap))
+    val uReq = if(isLoad) Valid(new VLdRequest(ap)) else Valid(new VStRequest(ap))
+    val newAddr = Output(UInt(ap.coreMaxAddrBits.W))
+    val newSnippet = Output(UInt(ap.vLenb.W))
+  })
+  val reg = io.reg
+  val lmul = reg.style.vlmul(1,0)
+  val lmulValue = (1.U << reg.style.vlmul(1,0)).asUInt()
+  val lmulLargerEqualOne = !reg.style.vlmul(2)
+  val lmulLargerThanOne = lmulLargerEqualOne && lmul =/= 0.U
+  val segmentModLmul = WireInit(reg.segmentCount % lmulValue)
+
+  io.newAddr := 0.U
+  io.newSnippet := 0.U
+  io.uReq := 0.U.asTypeOf(if (isLoad) Valid(new VLdRequest(ap)) else Valid(new VStRequest(ap)))
+  when(reg.style.isUnitStride || reg.style.isWholeAccess){
+    val baseAddr = Mux(reg.style.isWholeAccess, reg.addr + (reg.segmentCount << log2Ceil(ap.vLenb).U).asUInt(),
+      reg.addr + Mux(lmulLargerEqualOne, ap.vLenb.U * segmentModLmul, 0.U))
+    val (reqNecessary, req) = io.uReq.bits.UnitStride(baseAddr, reg.reqCount, reg.pRegVec(reg.segmentCount),
+      reg.segmentCount, reg.style.isWholeAccess, true, reg.finishMasks, id)
+    io.uReq.valid := reqNecessary
+    io.uReq.bits := req
+  }.elsewhen(reg.style.isConstantStride){
+    /** when segmentCount === lmul, reset to base addr. */
+    val newAddr: UInt = Mux(lmulLargerThanOne && segmentModLmul === 0.U, reg.addr, reg.preAddr)
+    val (reqNecessary, req, addr, snippet) = io.uReq.bits.ConstantStride(reg.addr, newAddr, reg.rs2, reg.style.dataEew,
+      reg.pRegVec(reg.segmentCount), reg.segmentCount, reg.reqCount, reg.preSnippet, true, reg.finishMasks, id)
+    io.uReq.valid := reqNecessary
+    io.uReq.bits := req
+    io.newAddr := addr
+    io.newSnippet := snippet
+  }.elsewhen(reg.style.isIndexed){
+    val (reqNecessary, req, snippet) = io.uReq.bits.Indexed(addr = reg.addr,
+      indexEew = reg.style.indexEew,
+      dataEew = reg.style.dataEew,
+      dstPreg = reg.pRegVec,
+      reqCOunt = reg.reqCount,
+      indexRegIdx = reg.segmentCount,
+      preSnippet = reg.preSnippet,
+      indexArray = reg.vs2,
+      isLoad = true,
+      initialSnippet = reg.finishMasks, id = id)
+    io.uReq.valid := reqNecessary
+    io.uReq.bits := req
+    io.newSnippet := snippet
+  }
+}
+
+object GetNewBranchMask{
+  def apply(brUpdate: BranchUpdateInfo, brMask: UInt): UInt = {
+    brMask & (~brUpdate.b1.resolveMask).asUInt()
+  }
+}
+object IsKilledByBranch{
+  def apply(brUpdate: BranchUpdateInfo, brMask: UInt): Bool = {
+    maskMatch(brUpdate.b1.mispredictMask, brMask)
+  }
 }

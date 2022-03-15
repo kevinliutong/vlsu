@@ -3,7 +3,9 @@ import chisel3._
 import chisel3.util._
 import freechips.rocketchip.config.Parameters
 import boom.common._
+import freechips.rocketchip.devices.tilelink.TLTestRAM
 import freechips.rocketchip.diplomacy._
+import freechips.rocketchip.subsystem.{BaseSubsystem, BaseSubsystemModuleImp, InSubsystem, TilesLocated}
 import freechips.rocketchip.tilelink._
 class VLSU(generalParameters: VLSUGeneralParameters, boomParams: BoomCoreParams)(implicit p: Parameters) extends LazyModule() {
   val vmshrs = generalParameters.nLmshrs + generalParameters.nSmshrs
@@ -99,4 +101,46 @@ class VLSUImp(outer: VLSU, generalParameters: VLSUGeneralParameters, boomParams:
   io.toVrf.write <> wbCtrl.io.toVRF
   // write stale data for undisturbed load.
   wbCtrl.io.wbReqFromQEntry <> vldqHandler.io.vrfWriteReq
+}
+
+class VLSUHarness(gp: VLSUGeneralParameters) (implicit p: Parameters) extends Module{
+  val lazyvlsu = LazyModule(new VLSUHarnessSystem(gp)(p))
+  val vlsu = Module(lazyvlsu.module)
+  val ap = vlsu.ap
+  val io = IO(new Bundle{
+    val topIO = new VLSUTopBundle(ap)
+  })
+  vlsu.io.fromRr := io.topIO.fromRr
+  io.topIO.toDis := vlsu.io.toDis
+  vlsu.io.fromDis := io.topIO.fromDis
+
+  io.topIO.toVrf := vlsu.io.toVrf
+  vlsu.io.fromVrf := io.topIO.fromVrf
+
+  io.topIO.ldToRob := vlsu.io.ldToRob
+  io.topIO.stToRob := vlsu.io.stToRob
+  vlsu.io.fromRob := io.topIO.fromRob
+
+  io.topIO.wakeUpVreg := vlsu.io.wakeUpVreg
+
+  vlsu.io.vrfBusyStatus := io.topIO.vrfBusyStatus
+  vlsu.io.brUpdate := io.topIO.brUpdate
+}
+
+class VLSUHarnessSystem(genparam: VLSUGeneralParameters)(implicit p: Parameters) extends BaseSubsystem{
+  override lazy val module = new VLSUHarnessSystemImp(this)
+  val gp = genparam
+  val bp = p(TilesLocated(InSubsystem)).head.tileParams.core.asInstanceOf[BoomCoreParams]
+  val vlsu = LazyModule(new VLSU(gp, bp))
+  val vlsuWidget = LazyModule(new TLWidthWidget(64)).suggestName("vlsuWidthWidget")
+  sbus.inwardNode := vlsuWidget.node := vlsu.node
+  val ddr = LazyModule(new TLTestRAM(AddressSet(0x80000000L, 0xfffffffL), true, 64))
+  val ddrWidget = LazyModule(new TLWidthWidget(mbus.beatBytes)).suggestName("ddrWidthWidget")
+  ddr.node := ddrWidget.node := mbus.outwardNode
+}
+
+class VLSUHarnessSystemImp[+L <: VLSUHarnessSystem](_outer: L) extends BaseSubsystemModuleImp(_outer){
+  val ap = new VLSUArchitecturalParams(outer.gp, outer.bp, outer.vlsu.node.edges.out(0))
+  val io = IO(new VLSUTopBundle(ap))
+  io <> outer.vlsu.module.io
 }

@@ -9,17 +9,17 @@ import freechips.rocketchip.tile.XLen
 import freechips.rocketchip.tilelink.{TLBundleParameters, TLEdgeOut}
 
 case class VLSUGeneralParameters(nCacheLineSizeBytes: Int = 64,
-                                 vLen: Int = 1024,
-                                 nLmshrs: Int = 8,
-                                 nSmshrs: Int = 8,
+                                 vLen: Int = 512,
+                                 nLmshrs: Int = 4,
+                                 nSmshrs: Int = 4,
                                  nL2DataBeatBytes: Int = 32,
-                                 nVLdQEntries: Int = 8,
-                                 nVStQEntries: Int = 8,
-                                 nVLdBuffEntries: Int = 128,
-                                 nVStBuffEntries: Int = 128,
+                                 nVLdQEntries: Int = 4,
+                                 nVStQEntries: Int = 4,
+                                 nVLdBuffEntries: Int = 64,
+                                 nVStBuffEntries: Int = 64,
                                  coreWidth: Int = 2,
                                  nStoreWaitCycles: Int = 16,
-                                 nVRegs: Int = 64
+                                 nVRegs: Int = 32
                                 ){
   require(nL2DataBeatBytes < nCacheLineSizeBytes, "beat byte should small than cache line size.")
 }
@@ -29,6 +29,7 @@ class VLSUArchitecturalParams(gp: VLSUGeneralParameters,
                               edge: TLEdgeOut)(implicit p: Parameters){
   val coreWidth = gp.coreWidth
   val retireWidth = coreWidth
+  val l2BundleParams: TLBundleParameters = edge.bundle
 
   val numRobRows = bp.numRobEntries / coreWidth
   val robAddrSz = log2Ceil(numRobRows) + log2Ceil(coreWidth)
@@ -49,17 +50,16 @@ class VLSUArchitecturalParams(gp: VLSUGeneralParameters,
   val maxBrCount = bp.maxBrCount
 
   val nCacheLineBytes: Int = gp.nCacheLineSizeBytes
-  val nCacheLineBits: Int = nCacheLineBytes
+  val nCacheLineBits: Int = nCacheLineBytes * 8
   require(nCacheLineBytes == p(CacheBlockBytes))
 
-  val l2BundleParams: TLBundleParameters = edge.bundle
-  require(nCacheLineBits == l2BundleParams.dataBits, "one cache line per cycle. Use widthwidgt to adjust.")
+  require(nCacheLineBits == l2BundleParams.dataBits, s"one cache line per cycle. Use widthwidgt to adjust.,$nCacheLineBits, ${l2BundleParams.dataBits}")
 
   val tlEdge = edge
 
   val nVRegs = gp.nVRegs
   val nVPregSz = log2Ceil(nVRegs)
-  val vLen = bp.vLen
+  val vLen = gp.vLen
   val xLen = p(XLen)
   val vLenb = vLen / 8
   /** Maximum elements number in one logical vector, which means eew = 8b and elmul = 8. */

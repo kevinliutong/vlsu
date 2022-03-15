@@ -41,8 +41,8 @@ class VLdQueueHandler(ap: VLSUArchitecturalParams) extends VLSUModules(ap){
   val nonUnitStrideOHs = RegInit(0.U.asTypeOf(Vec(nEntries, Bool())))
   io.toRob := 0.U.asTypeOf(new VLSUROBIO(ap))
   val vldReqArb = Module(new RequestArbitrator(ap, new VLdRequest(ap), true))
-  val vuopDisInputs = WireInit(0.U.asTypeOf(Vec(nEntries, Decoupled(new VLSMicroOP(ap)))))
-  val vuopRRInputs = WireInit(0.U.asTypeOf(Vec(nEntries, Decoupled(new VLSMicroOP(ap)))))
+  val vuopDisInputs = WireInit(0.U.asTypeOf(Vec(nEntries, Valid(new VLSMicroOP(ap)))))
+  val vuopRRInputs = WireInit(0.U.asTypeOf(Vec(nEntries, Valid(new VLSMicroOP(ap)))))
 
   val reqCandidates = WireInit(0.U.asTypeOf(Vec(nEntries, Decoupled(new VLdRequest(ap)))))
   val toRobVec = WireInit(0.U.asTypeOf(Vec(nEntries, Decoupled(UInt(ap.robAddrSz.W)))))

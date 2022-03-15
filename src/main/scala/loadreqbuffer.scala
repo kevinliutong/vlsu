@@ -78,7 +78,7 @@ class LoadBufferEntry(ap: VLSUArchitecturalParams, idx: Int) extends VLSUModules
     /** address query from wb controller for bypass wb. */
     val wbBypassQuery = Flipped(Valid(UInt(ap.coreMaxAddrBits.W)))
     /** tell wb if querying address hit us. */
-    val wbBypassResp = Flipped(Valid(UInt(ap.nVLdBuffEntryIdxBits.W)))
+    val wbBypassResp = Valid(new VLdRequest(ap))
     /** from wb controller to tell us which entry has finished. */
     val reqWBDone = Flipped(Valid(UInt(ap.nVLdBuffEntryIdxBits.W)))
     /** resp from vtlb at same cycle. */

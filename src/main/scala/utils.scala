@@ -79,6 +79,14 @@ class RequestArbitrator[req <: Data](ap: VLSUArchitecturalParams, request: req, 
     val winnerIdx = OHToUInt(winnerThisSlot)
     winnerIdxVec(w) := winnerIdx
     io.outputReq(w).valid := winnerThisSlot.orR() && io.inputReq(winnerIdx).valid
+    io.outputReq(w).bits := io.inputReq(winnerIdx).bits
+    players = players & (~winnerThisSlot).asUInt()
+    winners = winners | winnerThisSlot
+  }
+  io.inputReq.zipWithIndex.foreach{case ( qInput, i) =>
+    val wonOH = VecInit(winnerIdxVec.map(_ === i.U)).asUInt()
+    val wonIdx = OHToUInt(wonOH)
+    qInput.ready := winners(i) && io.outputReq(wonIdx).ready
   }
 }
 

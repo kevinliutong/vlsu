@@ -173,7 +173,7 @@ class VecRequest(ap: VLSUArchitecturalParams) extends VLSUBundle(ap){
     val tail = Wire(UInt(ap.vLenb.W))
 
     head := (Fill(ap.nCacheLineBytes, 1.U(1.W)) >> offset).asUInt()
-    tail := (Fill(ap.nCacheLineBytes, 1.U(1.W)) ## 0.U(ap.vLenb) >> offset).asUInt()(ap.vLenb - 1, 0)
+    tail := (Fill(ap.nCacheLineBytes, 1.U(1.W)) ## 0.U(ap.vLenb.W) >> offset).asUInt()(ap.vLenb - 1, 0)
     body := Fill(ap.vLenb, 1.U(1.W)) & (~(head | tail)).asUInt()
     (head, body, tail)
   }

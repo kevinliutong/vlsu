@@ -471,3 +471,24 @@ class BranchUpdateInfo(ap: VLSUArchitecturalParams) extends VLSUBundle(ap){
   val b1 = new BranchUpdateMasks(ap)
   val b2 = new BranchResolutionInfo(ap)
 }
+
+/** Top io bundle */
+class VLSUTopBundle(ap: VLSUArchitecturalParams) extends VLSUBundle(ap){
+  val brUpdate = Input(new BranchUpdateInfo(ap))
+  /** vrf io */
+  val toVrf = new VLSUVRFIO(ap)
+  val fromVrf = new VRFVLSUIO(ap)
+
+  /** Dispatch stage to vlsu. */
+  val fromDis = new DispatchVLSUIO(ap)
+  val toDis = new VLSUDispatchIO(ap)
+
+  /** Register read stage to vlsu. */
+  val fromRr = new RRVLSUIO(ap)
+  /** vlsu to Rob */
+  val ldToRob = new VLSUROBIO(ap)
+  val stToRob = new VLSUROBIO(ap)
+  val wakeUpVreg = ValidIO(UInt(ap.nVPregSz.W))
+  val fromRob = new ROBVLSUIO(ap)
+  val vrfBusyStatus = Input(UInt(ap.nVRegs.W))
+}
